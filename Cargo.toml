@@ -1,0 +1,15 @@
+[package]
+name = "async-struggles"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.75"
+tokio = { version = "1.29.1", features = ["full"]}
+futures = "0.3.28"
+tokio-stream = "0.1.14"
+dashmap = "5.5.3"
+serial_test = "2.0.0"
