@@ -12,4 +12,5 @@ tokio = { version = "1.29.1", features = ["full"]}
 futures = "0.3.28"
 tokio-stream = "0.1.14"
 dashmap = "5.5.3"
-serial_test = "2.0.0"
+serial_test = "3.0.0"
+humantime = "2.1.0"

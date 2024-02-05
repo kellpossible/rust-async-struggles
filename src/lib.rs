@@ -1,27 +1,34 @@
 #[cfg(test)]
 mod test {
     use futures::{
-        stream::{self, StreamExt, TryStreamExt}, FutureExt, TryFutureExt,
+        stream::{self, StreamExt, TryStreamExt},
+        FutureExt, TryFutureExt,
     };
+    use serial_test::serial;
     use std::{sync::Arc, time::Duration};
     use tokio::{self, task::JoinError};
-    use serial_test::serial;
 
-    async fn perform_get_request(id: u32) -> anyhow::Result<u32> {
+    fn test_data() -> Vec<u8> {
+        (1..=10).into_iter().collect()
+    }
+
+    async fn perform_get_request(id: u8) -> anyhow::Result<u8> {
         println!("get {id} starting");
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100 + 50 / (id as u64))).await;
+        // tokio::time::sleep(Duration::from_millis(100)).await;
         println!("get {id} complete");
         Ok(id)
     }
 
-    async fn perform_post_request(id: u32) -> anyhow::Result<()> {
+    async fn perform_post_request(id: u8) -> anyhow::Result<()> {
         println!("post {id} starting");
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100 + 5 * id as u64)).await;
+        // tokio::time::sleep(Duration::from_millis(100)).await;
         println!("post {id} complete");
         Ok(())
     }
 
-    fn transform_data(result: anyhow::Result<u32>) -> anyhow::Result<u32> {
+    fn transform_data(result: anyhow::Result<u8>) -> anyhow::Result<u8> {
         match result {
             Ok(id) => {
                 println!("transforming {id}");
@@ -40,116 +47,134 @@ mod test {
         }
     }
 
-    #[tokio::test]
-    #[serial]
-    pub async fn test_1_naive() -> anyhow::Result<()> {
-        stream::iter(vec![1, 2, 3, 4, 5])
-            .then(perform_get_request)
-            .map(transform_data)
-            .try_for_each(perform_post_request)
-            .await?;
-
-        Ok(())
+    async fn time_test(f: impl std::future::Future<Output = ()>) {
+        let start = tokio::time::Instant::now();
+        f.await;
+        let end = tokio::time::Instant::now();
+        let duration = end - start;
+        println!("Duration: {}", humantime::format_duration(duration))
     }
 
     #[tokio::test]
     #[serial]
-    pub async fn test_2_with_buffer() -> anyhow::Result<()> {
-        stream::iter(vec![1, 2, 3, 4, 5])
-            .map(perform_get_request)
-            .map(Ok)
-            .try_buffer_unordered(2)
-            .map(transform_data)
-            .try_for_each(perform_post_request)
-            .await?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    pub async fn test_3_with_buffer_task() -> anyhow::Result<()> {
-        stream::iter(vec![1, 2, 3, 4, 5, 6])
-            .map(perform_get_request)
-            .map(tokio::spawn)
-            .map(Ok)
-            .try_buffer_unordered(2)
-            // Unwrap task join result
-            .map(|result| match result {
-                Ok(ok) => ok,
-                Err(error) => Err(error.into()),
-            })
-            .map(transform_data)
-            .try_for_each(perform_post_request)
-            .await?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    pub async fn test_4_with_bounded_channel() -> anyhow::Result<()> {
-        let (tx, rx) = tokio::sync::mpsc::channel(2);
-        let get_stream = async move {
-            // This is in its own async block so that it and tx gets dropped
-            // when the stream completes.
-            stream::iter(vec![1, 2, 3, 4, 5, 6])
+    pub async fn test_1_naive() {
+        time_test(async {
+            stream::iter(test_data())
                 .then(perform_get_request)
                 .map(transform_data)
-                .try_for_each(|data| tx.send(data).map_err(anyhow::Error::from))
+                .try_for_each(perform_post_request)
                 .await
-        };
-
-        let post_stream = tokio_stream::wrappers::ReceiverStream::from(rx)
-            .map(Ok)
-            .try_for_each(perform_post_request);
-
-        tokio::try_join!(get_stream, post_stream,)?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[serial]
-    pub async fn test_5_with_bounded_channel_tasks() -> anyhow::Result<()> {
-        let (tx, rx) = tokio::sync::mpsc::channel(2);
-
-        let get_stream = tokio::spawn(async move {
-            // This is in its own async block so that it and tx gets dropped
-            // when the stream completes.
-            stream::iter(vec![1, 2, 3, 4, 5, 6])
-                .then(perform_get_request)
-                .map(transform_data)
-                .try_for_each(|data| tx.send(data).map_err(anyhow::Error::from))
-                .await
+                .unwrap();
         })
-        .map(flatten_join_result);
-
-        let post_stream = tokio::spawn(
-            tokio_stream::wrappers::ReceiverStream::from(rx)
-                .map(Ok)
-                .try_for_each(perform_post_request),
-        )
-        .map(flatten_join_result);
-
-        tokio::try_join!(get_stream, post_stream,)?;
-
-        Ok(())
+        .await;
     }
 
     #[tokio::test]
     #[serial]
-    pub async fn test_7_all_together() -> anyhow::Result<()> {
-        stream::iter(vec![1, 2, 3, 4, 5])
-            .map(Ok)
-            .try_for_each_concurrent(2, |data| async move {
-                let get_data = perform_get_request(data).await?;
-                let post_data = transform_data(Ok(get_data))?;
-                perform_post_request(post_data).await
-            })
-            .await?;
+    pub async fn test_2_with_buffer() {
+        time_test(async {
+            stream::iter(test_data())
+                .map(perform_get_request)
+                .map(Ok)
+                .try_buffer_unordered(2)
+                .map(transform_data)
+                .try_for_each(perform_post_request)
+                .await
+                .unwrap()
+        })
+        .await;
+    }
 
-        Ok(())
+    #[tokio::test]
+    #[serial]
+    pub async fn test_3_with_buffer_task() {
+        time_test(async {
+            stream::iter(test_data())
+                .map(perform_get_request)
+                .map(tokio::spawn)
+                .map(Ok)
+                .try_buffer_unordered(2)
+                // Unwrap task join result
+                .map(|result| match result {
+                    Ok(ok) => ok,
+                    Err(error) => Err(error.into()),
+                })
+                .map(transform_data)
+                .try_for_each(perform_post_request)
+                .await
+                .unwrap()
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    pub async fn test_4_with_bounded_channel() {
+        time_test(async {
+            let (tx, rx) = tokio::sync::mpsc::channel(2);
+            let get_stream = async move {
+                // This is in its own async block so that it and tx gets dropped
+                // when the stream completes.
+                stream::iter(test_data())
+                    .then(perform_get_request)
+                    .map(transform_data)
+                    .try_for_each(|data| tx.send(data).map_err(anyhow::Error::from))
+                    .await
+            };
+
+            let post_stream = tokio_stream::wrappers::ReceiverStream::from(rx)
+                .map(Ok)
+                .try_for_each(perform_post_request);
+
+            tokio::try_join!(get_stream, post_stream,).unwrap();
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    pub async fn test_5_with_bounded_channel_tasks() {
+        time_test(async {
+            let (tx, rx) = tokio::sync::mpsc::channel(2);
+
+            let get_stream = tokio::spawn(async move {
+                // This is in its own async block so that it and tx gets dropped
+                // when the stream completes.
+                stream::iter(test_data())
+                    .then(perform_get_request)
+                    .map(transform_data)
+                    .try_for_each(|data| tx.send(data).map_err(anyhow::Error::from))
+                    .await
+            })
+            .map(flatten_join_result);
+
+            let post_stream = tokio::spawn(
+                tokio_stream::wrappers::ReceiverStream::from(rx)
+                    .map(Ok)
+                    .try_for_each(perform_post_request),
+            )
+            .map(flatten_join_result);
+
+            tokio::try_join!(get_stream, post_stream,).unwrap();
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    pub async fn test_7_all_together() {
+        time_test(async {
+            stream::iter(test_data())
+                .map(Ok)
+                .try_for_each_concurrent(2, |data| async move {
+                    let get_data = perform_get_request(data).await?;
+                    let post_data = transform_data(Ok(get_data))?;
+                    perform_post_request(post_data).await
+                })
+                .await
+                .unwrap()
+        })
+        .await;
     }
 
     #[ignore] // because it deadlocks
