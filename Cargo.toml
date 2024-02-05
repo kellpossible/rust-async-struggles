@@ -14,3 +14,4 @@ tokio-stream = "0.1.14"
 dashmap = "5.5.3"
 serial_test = "3.0.0"
 humantime = "2.1.0"
+par-stream = { version = "0.10.2", features = ["runtime-tokio"] }

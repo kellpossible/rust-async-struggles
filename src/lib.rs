@@ -4,6 +4,7 @@ mod test {
         stream::{self, StreamExt, TryStreamExt},
         FutureExt, TryFutureExt,
     };
+    use par_stream::{ParParams, TryParStreamExt};
     use serial_test::serial;
     use std::{sync::Arc, time::Duration};
     use tokio::{self, task::JoinError};
@@ -193,7 +194,34 @@ mod test {
 
     #[tokio::test]
     #[serial]
-    pub async fn test_7_all_together() {
+    pub async fn test_7_par_stream() {
+        time_test(async {
+            stream::iter(test_data())
+                .map(Ok)
+                .try_par_then_unordered(
+                    ParParams {
+                        num_workers: 2,
+                        buf_size: None,
+                    },
+                    |data| async move { perform_get_request(data).await },
+                )
+                .map(transform_data)
+                .try_par_for_each(
+                    ParParams {
+                        num_workers: 2,
+                        buf_size: None,
+                    },
+                    |data| async move { perform_post_request(data).await },
+                )
+                .await
+                .unwrap()
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    pub async fn test_8_all_together() {
         time_test(async {
             stream::iter(test_data())
                 .map(Ok)
@@ -211,7 +239,7 @@ mod test {
     #[ignore] // because it deadlocks
     #[tokio::test]
     #[serial]
-    pub async fn test_8_std_mutex_await_lock() {
+    pub async fn test_9_std_mutex_await_lock() {
         let mutex = Arc::new(std::sync::Mutex::new(()));
         let sleep_mutex = mutex.clone();
         tokio::join!(
@@ -228,7 +256,7 @@ mod test {
 
     #[tokio::test]
     #[serial]
-    pub async fn test_9_tokio_mutex_await_lock() {
+    pub async fn test_10_tokio_mutex_await_lock() {
         let mutex = Arc::new(tokio::sync::Mutex::new(()));
         let sleep_mutex = mutex.clone();
         tokio::join!(
