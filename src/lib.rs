@@ -164,6 +164,35 @@ mod test {
 
     #[tokio::test]
     #[serial]
+    pub async fn test_6_with_bounded_channel_concurrent() {
+        time_test(async {
+            let (tx, rx) = tokio::sync::mpsc::channel(2);
+            let get_stream = async move {
+                // tx moved into here so it is dropped when stream completes.
+                let tx = &tx;
+                // This is in its own async block so that it and tx gets dropped
+                // when the stream completes.
+                stream::iter(test_data())
+                    .map(Ok)
+                    .try_for_each_concurrent(2, |data| async move {
+                        let result = perform_get_request(data).await;
+                        let data = transform_data(result)?;
+                        tx.send(data).await.map_err(anyhow::Error::from)
+                    })
+                    .await
+            };
+
+            let post_stream = tokio_stream::wrappers::ReceiverStream::from(rx)
+                .map(Ok)
+                .try_for_each_concurrent(2, perform_post_request);
+
+            tokio::try_join!(get_stream, post_stream,).unwrap();
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
     pub async fn test_7_all_together() {
         time_test(async {
             stream::iter(test_data())
