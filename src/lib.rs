@@ -12,18 +12,20 @@ mod test {
         (1..=10).into_iter().collect()
     }
 
+    /// Simulate performing a get request. Time decreases as id increases to exaggerate order
+    /// differences and the effect of the buffer.
     async fn perform_get_request(id: u8) -> anyhow::Result<u8> {
         println!("get {id} starting");
         tokio::time::sleep(Duration::from_millis(100 + 50 / (id as u64))).await;
-        // tokio::time::sleep(Duration::from_millis(100)).await;
         println!("get {id} complete");
         Ok(id)
     }
 
+    /// Simulate performing a post request. Time increases as id increases to exaggerate order
+    /// differences and the effect of the buffer.
     async fn perform_post_request(id: u8) -> anyhow::Result<()> {
         println!("post {id} starting");
         tokio::time::sleep(Duration::from_millis(100 + 5 * id as u64)).await;
-        // tokio::time::sleep(Duration::from_millis(100)).await;
         println!("post {id} complete");
         Ok(())
     }
